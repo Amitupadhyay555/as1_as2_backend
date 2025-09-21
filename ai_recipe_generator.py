@@ -1,4 +1,8 @@
-import torch
+import os
+try:
+    import torch  # Optional at runtime
+except Exception:  # pragma: no cover
+    torch = None
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM, pipeline
 import requests
 import json
@@ -55,18 +59,21 @@ class ModelManager:
             logger.info(f"Loading model: {model_name}")
             tokenizer = AutoTokenizer.from_pretrained(model_name)
             
+            cuda_available = bool(torch and hasattr(torch, "cuda") and torch.cuda.is_available())
+            dtype = (torch.float16 if cuda_available else (torch.float32 if torch else None))
+
             if model_type == "seq2seq":
                 model = AutoModelForSeq2SeqLM.from_pretrained(
                     model_name,
-                    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-                    device_map="auto" if torch.cuda.is_available() else None,
+                    torch_dtype=dtype,
+                    device_map="auto" if cuda_available else None,
                     low_cpu_mem_usage=True
                 )
             else:
                 model = AutoModelForCausalLM.from_pretrained(
                     model_name,
-                    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-                    device_map="auto" if torch.cuda.is_available() else None,
+                    torch_dtype=dtype,
+                    device_map="auto" if cuda_available else None,
                     low_cpu_mem_usage=True
                 )
             
@@ -97,7 +104,11 @@ class ModelManager:
             if model_name in self.models:
                 del self.models[model_name]
                 del self.model_usage[model_name]
-                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                try:
+                    if torch and hasattr(torch, "cuda") and torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except Exception:
+                    pass
                 gc.collect()
                 logger.info(f"Cleaned up unused model: {model_name}")
 
@@ -147,6 +158,7 @@ class AdvancedAIRecipeGenerator:
         self.recipe_template = RecipeTemplate()
         self.is_initialized = False
         self.fallback_mode = False
+        self.disable_models = str(os.getenv("AI_DISABLE_MODELS", "false")).lower() in ("1", "true", "yes")
         
         # Enhanced model configurations
         self.model_configs = {
@@ -173,7 +185,13 @@ class AdvancedAIRecipeGenerator:
         self.nutritional_info = self._build_nutritional_database()
         
         logger.info("🚀 Initializing Enhanced AI Recipe Generator...")
-        self._initialize_models()
+        if self.disable_models:
+            # Skip loading large models in constrained environments
+            logger.warning("AI model initialization disabled via AI_DISABLE_MODELS. Using rule-based fallback.")
+            self.is_initialized = False
+            self.fallback_mode = True
+        else:
+            self._initialize_models()
     
     def _initialize_models(self):
         """Initialize AI models with error handling and fallback"""
@@ -679,7 +697,7 @@ Recipe:"""
             "system_status": "healthy" if self.is_initialized else "degraded",
             "models_loaded": len(self.model_manager.models),
             "fallback_mode": self.fallback_mode,
-            "memory_usage": torch.cuda.memory_allocated() if torch.cuda.is_available() else 0,
+            "memory_usage": (torch.cuda.memory_allocated() if (torch and hasattr(torch, "cuda") and torch.cuda.is_available()) else 0),
             "last_generation": getattr(self, '_last_generation_time', None)
         }
 

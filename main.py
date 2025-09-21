@@ -3,16 +3,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict
 import uvicorn
+import os
 
 from name_matcher import NameMatcher
 from ai_recipe_generator import AdvancedAIRecipeGenerator
 
 app = FastAPI(title="AI Assignment API", version="1.0.0")
 
-# Enable CORS for React frontend
+# Enable CORS for React frontend (configurable)
+default_origins = [
+    "http://localhost:3000",
+    "https://localhost:3000",
+]
+env_origins = os.getenv("ALLOWED_ORIGINS", "").strip()
+allowed_origins = [o.strip() for o in env_origins.split(",") if o.strip()] or default_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

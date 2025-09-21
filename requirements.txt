@@ -9,5 +9,4 @@ fuzzywuzzy
 python-Levenshtein
 jellyfish
 transformers
-torch
 requests
